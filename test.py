@@ -31,7 +31,6 @@ from options.test_options import TestOptions
 from data import create_dataset
 from models import create_model
 from util.visualizer import save_images
-from util.visualizer import patch_save_images, recon_patches
 from util import html
 from util.util import tensor2im,save_image,im_range
 from skimage.measure import compare_ssim
@@ -65,20 +64,6 @@ if __name__ == '__main__':
     avg_psnr = 0
     avg_ssim = 0
     count = 0
-    if opt.patch_dataset:
-
-        patch_size = opt.test_patch_size
-        stride = patch_size - 2 * 5 # patch_offset의 5
-            #patch_offset 5-8
-        height = 512
-        width = 512
-        patch_offset = 5
-        mod_h = height + stride - np.mod(height - 2 * patch_offset, stride)
-        mod_w = width + stride - np.mod(width - 2 * patch_offset, stride)
-        
-        num_patches = ((mod_h)// stride) * ((mod_w)// stride)
-        
-        arr = np.zeros((num_patches, patch_size, patch_size), dtype=np.float32)
 
     for i, data in enumerate(dataset):
         if i >= opt.num_test:  # only apply our model to opt.num_test images.
@@ -89,45 +74,23 @@ if __name__ == '__main__':
         
         img_path = model.get_image_paths()     # get image paths
         fake_A_cpu = visuals['fake_A'][0][0].cpu()
-            real_A_cpu = visuals['real_A'][0][0].cpu()
-            real_B_cpu = visuals['real_B'][0][0].cpu()
-            print(fake_A_cpu.numpy().size)
-            print(real_A_cpu.numpy().size)
-            psnr_1 = compare_psnr(real_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286, im_range(fake_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286))
-            psnr_2 = compare_psnr(real_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286, real_B_cpu.numpy()*0.3435000343241166 + 0.2974482899666286)
-            ssim_1 = compare_ssim(real_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286, im_range(fake_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286))
-            ssim_2 = compare_ssim(real_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286, real_B_cpu.numpy()*0.3435000343241166 + 0.2974482899666286)
-            print("psnr_result {} ssim_ {}".format(psnr_1, ssim_1))
-            print("psnr_fake {} ssim_ {} ".format(psnr_2, ssim_2))
-            print('processing (%04d)-th image... %s' % (i, img_path))
-            avg_psnr += psnr_1
-            avg_ssim += ssim_1
-            count += 1
+        real_A_cpu = visuals['real_A'][0][0].cpu()
+        real_B_cpu = visuals['real_B'][0][0].cpu()
+    
+        psnr_1 = compare_psnr(real_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286, im_range(fake_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286))
+        psnr_2 = compare_psnr(real_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286, real_B_cpu.numpy()*0.3435000343241166 + 0.2974482899666286)
+        ssim_1 = compare_ssim(real_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286, im_range(fake_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286))
+        ssim_2 = compare_ssim(real_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286, real_B_cpu.numpy()*0.3435000343241166 + 0.2974482899666286)
+        print("psnr_result {} ssim_ {}".format(psnr_1, ssim_1))
+        print("psnr_fake {} ssim_ {} ".format(psnr_2, ssim_2))
+        
+        avg_psnr += psnr_1
+        avg_ssim += ssim_1
+        count += 1
 
         if i % 5 == 0:  # save images to an HTML file
-            
-        if opt.patch_dataset:
-            for label, im_data in visuals.items():
-                if label == 'fake_A':
-                    im = tensor2im(im_data)
-                    #im = tensor2im(im_data) + 0.5
-                    im = np.transpose(im, (2, 0, 1))[0]  
-                    print(im.shape)
-                    arr[i%num_patches] = im
-                    print(num_patches)
-                    if i%num_patches== num_patches-1:
-                        image_dir = webpage.get_image_dir()
-                        short_path = ntpath.basename(img_path[0])
-                        name = os.path.splitext(short_path)[0]
-                        print("make!!!!!!!")
-                        #arr = np.transpose(arr,(1,2,0))      
-                        im = recon_patches(arr)
-                        image_name = '%s_%s.png' % (name, label)
-                        save_path = os.path.join(image_dir, image_name)
-                        save_image(im, save_path, aspect_ratio=opt.aspect_ratio)
-                        
-        else:
-            save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.display_winsize)
+            print('processing (%04d)-th image... %s' % (i, img_path))
+        save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.display_winsize)
     print("--------------------------result------------------------------")
     print("average psnr {} average ssim {}".format(avg_psnr/count, avg_ssim/count))
     webpage.save()  # save the HTML
