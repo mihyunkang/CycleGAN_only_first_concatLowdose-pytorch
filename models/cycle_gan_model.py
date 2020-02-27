@@ -178,7 +178,7 @@ class CycleGANModel(BaseModel):
         if lambda_idt > 0:
     
             # G_A should be identity if real_B is fed: ||G_A(B) - B||
-            self.idt_A = self.netG_A(self.concat_lowdose(self.real_B,self.real_C))
+            self.idt_A = self.netG_A(self.real_B)
             self.loss_idt_A = self.criterionIdt(self.idt_A, self.real_B) * lambda_B * lambda_idt
             # G_B should be identity if real_A is fed: ||G_B(A) - A||
             self.idt_B = self.netG_B(self.concat_lowdose(self.real_A,self.real_C))
