@@ -1,0 +1,137 @@
+"""General-purpose test script for image-to-image translation.
+
+Once you have trained your model with train.py, you can use this script to test the model.
+It will load a saved model from --checkpoints_dir and save the results to --results_dir.
+
+It first creates model and dataset given the option. It will hard-code some parameters.
+It then runs inference for --num_test images and save results to an HTML file.
+
+Example (You need to train models first or download pre-trained models from our website):
+    Test a CycleGAN model (both sides):
+        python test.py --dataroot ./datasets/maps --name maps_cyclegan --model cycle_gan
+
+    Test a CycleGAN model (one side only):
+        python test.py --dataroot datasets/horse2zebra/testA --name horse2zebra_pretrained --model test --no_dropout
+
+    The option '--model test' is used for generating CycleGAN results only for one side.
+    This option will automatically set '--dataset_mode single', which only loads the images from one set.
+    On the contrary, using '--model cycle_gan' requires loading and generating results in both directions,
+    which is sometimes unnecessary. The results will be saved at ./results/.
+    Use '--results_dir <directory_path_to_save_result>' to specify the results directory.
+
+    Test a pix2pix model:
+        python test.py --dataroot ./datasets/facades --name facades_pix2pix --model pix2pix --direction BtoA
+
+See options/base_options.py and options/test_options.py for more test options.
+See training and test tips at: https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/docs/tips.md
+See frequently asked questions at: https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/docs/qa.md
+"""
+import os
+from options.test_options import TestOptions
+from data import create_dataset
+from models import create_model
+from util.visualizer import save_images
+from util.visualizer import patch_save_images, recon_patches
+from util import html
+from util.util import tensor2im,save_image,im_range
+from skimage.measure import compare_ssim
+from skimage.measure import compare_psnr
+import ntpath
+import numpy as np
+
+if __name__ == '__main__':
+    opt = TestOptions().parse()  # get test options
+    # hard-code some parameters for test
+    opt.num_threads = 0   # test code only supports num_threads = 1
+    opt.batch_size = 1    # test code only supports batch_size = 1
+    opt.serial_batches = True  # disable data shuffling; comment this line if results on randomly chosen images are needed.
+    opt.no_flip = True    # no flip; comment this line if results on flipped images are needed.
+    opt.display_id = -1   # no visdom display; the test code saves the results to a HTML file.
+    dataset = create_dataset(opt)  # create a dataset given opt.dataset_mode and other options
+    model = create_model(opt)      # create a model given opt.model and other options
+    model.setup(opt)               # regular setup: load and print networks; create schedulers
+    # create a website
+    web_dir = os.path.join(opt.results_dir, opt.name, '{}_{}'.format(opt.phase, opt.epoch))  # define the website directory
+    if opt.load_iter > 0:  # load_iter is 0 by default
+        web_dir = '{:s}_iter{:d}'.format(web_dir, opt.load_iter)
+    print('creating web directory', web_dir)
+    webpage = html.HTML(web_dir, 'Experiment = %s, Phase = %s, Epoch = %s' % (opt.name, opt.phase, opt.epoch))
+    # test with eval mode. This only affects layers like batchnorm and dropout.
+    # For [pix2pix]: we use batchnorm and dropout in the original pix2pix. You can experiment it with and without eval() mode.
+    # For [CycleGAN]: It should not affect CycleGAN as CycleGAN uses instancenorm without dropout.
+    if opt.eval:
+        model.eval()
+    
+    avg_psnr = 0
+    avg_ssim = 0
+    count = 0
+    if opt.patch_dataset:
+
+        patch_size = opt.test_patch_size
+        stride = patch_size - 2 * 5 # patch_offset의 5
+            #patch_offset 5-8
+        height = 512
+        width = 512
+        patch_offset = 5
+        mod_h = height + stride - np.mod(height - 2 * patch_offset, stride)
+        mod_w = width + stride - np.mod(width - 2 * patch_offset, stride)
+        
+        num_patches = ((mod_h)// stride) * ((mod_w)// stride)
+        
+        arr = np.zeros((num_patches, patch_size, patch_size), dtype=np.float32)
+
+    for i, data in enumerate(dataset):
+        if i >= opt.num_test:  # only apply our model to opt.num_test images.
+            break
+        model.set_input(data)  # unpack data from data loader
+        model.test()           # run inference
+        visuals = model.get_current_visuals()  # get image results
+        
+        img_path = model.get_image_paths()     # get image paths
+        fake_A_cpu = visuals['fake_A'][0][0].cpu()
+            real_A_cpu = visuals['real_A'][0][0].cpu()
+            real_B_cpu = visuals['real_B'][0][0].cpu()
+            print(fake_A_cpu.numpy().size)
+            print(real_A_cpu.numpy().size)
+            psnr_1 = compare_psnr(real_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286, im_range(fake_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286))
+            psnr_2 = compare_psnr(real_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286, real_B_cpu.numpy()*0.3435000343241166 + 0.2974482899666286)
+            ssim_1 = compare_ssim(real_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286, im_range(fake_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286))
+            ssim_2 = compare_ssim(real_A_cpu.numpy()*0.3435000343241166 + 0.2974482899666286, real_B_cpu.numpy()*0.3435000343241166 + 0.2974482899666286)
+            print("psnr_result {} ssim_ {}".format(psnr_1, ssim_1))
+            print("psnr_fake {} ssim_ {} ".format(psnr_2, ssim_2))
+            print('processing (%04d)-th image... %s' % (i, img_path))
+            avg_psnr += psnr_1
+            avg_ssim += ssim_1
+            count += 1
+
+        if i % 5 == 0:  # save images to an HTML file
+            
+        if opt.patch_dataset:
+            for label, im_data in visuals.items():
+                if label == 'fake_A':
+                    im = tensor2im(im_data)
+                    #im = tensor2im(im_data) + 0.5
+                    im = np.transpose(im, (2, 0, 1))[0]  
+                    print(im.shape)
+                    arr[i%num_patches] = im
+                    print(num_patches)
+                    if i%num_patches== num_patches-1:
+                        image_dir = webpage.get_image_dir()
+                        short_path = ntpath.basename(img_path[0])
+                        name = os.path.splitext(short_path)[0]
+                        print("make!!!!!!!")
+                        #arr = np.transpose(arr,(1,2,0))      
+                        im = recon_patches(arr)
+                        image_name = '%s_%s.png' % (name, label)
+                        save_path = os.path.join(image_dir, image_name)
+                        save_image(im, save_path, aspect_ratio=opt.aspect_ratio)
+                        
+        else:
+            save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.display_winsize)
+    print("--------------------------result------------------------------")
+    print("average psnr {} average ssim {}".format(avg_psnr/count, avg_ssim/count))
+    webpage.save()  # save the HTML
+
+    """
+    python test.py --model cycle_gan --name patchdataset_pixelwiseloss_128 --gpu_id -1 --dataroot ../../data/CycleGAN-data/datasets/denoising_full/ --dataset_mode patch --load_size 128 --test_patch_size 128 --patch_dataset True --results_dir ../../data/CycleGAN-data/result/patch_dataset_res9
+    """
